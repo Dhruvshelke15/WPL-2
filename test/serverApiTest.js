@@ -227,12 +227,18 @@ describe("Photo App: Web API Tests", function () {
           path: "/user/1",
         },
         function (response) {
+          response.on("data", function () {});
           response.on("end", function () {
             assert.strictEqual(response.statusCode, 400);
             done();
           });
+          response.on("error", function (err) {
+            done(err);
+          });
         }
-      );
+      ).on("error", function (err) {
+        done(err);
+      });
     });
   });
 
@@ -405,12 +411,18 @@ describe("Photo App: Web API Tests", function () {
           path: "/photosOfUser/1",
         },
         function (response) {
+          response.on("data", function () {});
           response.on("end", function () {
             assert.strictEqual(response.statusCode, 400);
             done();
           });
+          response.on("error", function (err) {
+            done(err);
+          });
         }
-      );
+      ).on("error", function (err) {
+        done(err);
+      });
     });
   });
 });
