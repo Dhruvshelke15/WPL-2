@@ -9,27 +9,26 @@ import mongoose from "mongoose";
 // eslint-disable-next-line import/no-extraneous-dependencies
 import bluebird from "bluebird";
 import express from "express";
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-
-// ToDO - Your submission should work without this line. Comment out or delete this line for tests and before submission!
-import models from "./modelData/photoApp.js";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 
 // Load the Mongoose schema for User, Photo, and SchemaInfo
-// ToDO - Your submission will use code below, so make sure to uncomment this line for tests and before submission!
-// import User from "./schema/user.js";
-// import Photo from "./schema/photo.js";
-// import SchemaInfo from "./schema/schemaInfo.js";
+import User from "./schema/user.js";
+import Photo from "./schema/photo.js";
+import SchemaInfo from "./schema/schemaInfo.js";
 
 const portno = 3001; // Port number to use
 const app = express();
 
 // Enable CORS for all routes
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  if (req.method === 'OPTIONS') {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+  if (req.method === "OPTIONS") {
     res.sendStatus(200);
   } else {
     next();
@@ -56,59 +55,199 @@ app.get("/", function (request, response) {
 
 /**
  * /test/info - Returns the SchemaInfo object of the database in JSON format.
- *              This is good for testing connectivity with MongoDB.
  */
-
-app.get('/test/info', (request, response) => {
-  const info = models.schemaInfo();
-  response.status(200).send(info);
+app.get("/test/info", async (request, response) => {
+  try {
+    const info = await SchemaInfo.findOne({});
+    if (!info) {
+      return response.status(404).send("SchemaInfo not found");
+    }
+    response.status(200).send(info);
+  } catch (err) {
+    response.status(500).send(err.message);
+  }
 });
 
 /**
  * /test/counts - Returns an object with the counts of the different collections
- *                in JSON format.
+ * in JSON format.
  */
-app.get('/test/counts', (request, response) => {
-  const users = models.userListModel();
-  let photoCount = 0;
-  users.forEach((user) => {
-    photoCount += models.photoOfUserModel(user._id).length;
-  });
-  response.status(200).send({
-    user: users.length,
-    photo: photoCount,
-    schemaInfo: 1
-  });
+app.get("/test/counts", async (request, response) => {
+  try {
+    const userCount = await User.countDocuments({});
+    const photoCount = await Photo.countDocuments({});
+    const schemaInfoCount = await SchemaInfo.countDocuments({});
+
+    response.status(200).send({
+      user: userCount,
+      photo: photoCount,
+      schemaInfo: schemaInfoCount,
+    });
+  } catch (err) {
+    response.status(500).send(err.message);
+  }
 });
 
 /**
  * URL /user/list - Returns all the User objects.
+ * *** THIS IS THE FIX for the failing test ***
+ * We are removing the count aggregation to satisfy the strict test.
  */
-app.get('/user/list', (request, response) => {
-  response.status(200).send(models.userListModel());
+app.get("/user/list", async (request, response) => {
+  try {
+    // 1. Get all users, selecting only the fields required by the test.
+    const users = await User.find({}).select("_id first_name last_name").lean();
+    
+    response.status(200).send(users);
+  } catch (err) {
+    response.status(500).send(err.message);
+  }
 });
 
 /**
  * URL /user/:id - Returns the information for User (id).
  */
-app.get('/user/:id', (request, response) => {
-  const user = models.userModel(request.params.id);
-  if (!user) {
-    response.status(400).send("Not found");
-    return;
+app.get("/user/:id", async (request, response) => {
+  const { id } = request.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return response.status(400).send("Invalid user ID format");
   }
-  response.status(200).send(user);
+
+  try {
+    const user = await User.findById(id)
+      .select("_id first_name last_name location description occupation")
+      .lean();
+
+    if (!user) {
+      return response.status(400).send("User not found"); // Test suite expects 400
+    }
+    response.status(200).send(user);
+  } catch (err) {
+    response.status(500).send(err.message);
+  }
 });
 
 /**
  * URL /photosOfUser/:id - Returns the Photos for User (id).
  */
-app.get('/photosOfUser/:id', (request, response) => {
-  const photos = models.photoOfUserModel(request.params.id);
-  if (!photos || photos.length === 0) {
-    return response.status(404).send({ error: 'Photos not found' });
+app.get("/photosOfUser/:id", async (request, response) => {
+  const { id } = request.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return response.status(400).send("Invalid user ID format");
   }
-  return response.status(200).send(photos);
+
+  try {
+    // Check if user exists
+    const userExists = await User.findById(id);
+    if (!userExists) {
+      return response.status(400).send("User not found"); // Test suite expects 400
+    }
+
+    // 1. Fetch all photos for the user
+    const photos = await Photo.find({ user_id: id }).select("-__v").lean();
+
+    if (!photos || photos.length === 0) {
+      return response.status(200).send([]); // Return empty array if no photos
+    }
+
+    // 2. Collect all unique user_ids from all comments
+    const userIds = new Set();
+    photos.forEach((photo) => {
+      if (photo.comments) { 
+        photo.comments.forEach((comment) => {
+          if (comment.user_id) { 
+            userIds.add(comment.user_id.toString());
+          }
+        });
+      }
+    });
+
+    // 3. Fetch all unique users in a single query
+    const users = await User.find({ _id: { $in: [...userIds] } })
+      .select("_id first_name last_name")
+      .lean();
+
+    // 4. Create a map for easy lookup
+    const userMap = users.reduce((acc, u) => {
+      acc[u._id.toString()] = u;
+      return acc;
+    }, {});
+
+    // 5. Manually "populate" the user object in each comment
+    photos.forEach((photo) => {
+      if (photo.comments) {
+        photo.comments.forEach((comment) => {
+          if (comment.user_id) {
+            comment.user = userMap[comment.user_id.toString()];
+            // *** THIS IS THE FIX for the "extra properties: user_id" test error ***
+            delete comment.user_id; 
+          }
+        });
+        photo.comments.sort((a, b) => new Date(b.date_time) - new Date(a.date_time));
+      } else {
+        photo.comments = []; // Ensure comments is an array
+      }
+    });
+
+    // Sort photos by date (newest first)
+    photos.sort((a, b) => new Date(b.date_time) - new Date(a.date_time));
+
+    return response.status(200).send(photos);
+  } catch (err) {
+    console.error("Error in /photosOfUser/:id :", err); 
+    return response.status(500).send(err.message);
+  }
+});
+
+/**
+ * URL /commentsOfUser/:id - Returns all comments made by User (id). (For Part 3)
+ */
+app.get("/commentsOfUser/:id", async (request, response) => {
+  const { id } = request.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return response.status(400).send("Invalid user ID");
+  }
+
+  try {
+    // Check if user exists
+    const userExists = await User.findById(id);
+    if (!userExists) {
+      return response.status(400).send("User not found");
+    }
+
+    // Find all photos that have at least one comment by this user
+    const photosWithUserComments = await Photo.find(
+      { "comments.user_id": id },
+      "file_name comments user_id" // Project only needed fields
+    ).lean();
+
+    // Filter comments to only include those by the specified user
+    const userComments = [];
+    photosWithUserComments.forEach((photo) => {
+      photo.comments.forEach((comment) => {
+        if (comment.user_id.toString() === id) {
+          userComments.push({
+            comment_text: comment.comment,
+            date_time: comment.date_time,
+            _id: comment._id,
+            photo_owner_id: photo.user_id, // For linking to the photo view
+            photo_id: photo._id,
+            photo_file_name: photo.file_name,
+          });
+        }
+      });
+    });
+
+    // Sort by date descending
+    userComments.sort((a, b) => new Date(b.date_time) - new Date(a.date_time));
+
+    response.status(200).json(userComments);
+  } catch (err) {
+    response.status(500).send(err.message);
+  }
 });
 
 const server = app.listen(portno, function () {

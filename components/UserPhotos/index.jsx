@@ -13,7 +13,7 @@ import {
   Grid,
   Box,
 } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import axios from "axios";
 
 import "./styles.css";
@@ -31,13 +31,14 @@ function formatDateTime(isoString) {
     });
   } catch (error) {
     console.warn(`Could not parse date: ${isoString}`);
-    return isoString; // Fallback to original string
+    return isoString;
   }
 }
 
-function UserPhotos({ userId, setAppContext }) {
+function UserPhotos({ userId, setAppContext, advancedFeatures }) {
   const [photos, setPhotos] = useState([]);
   const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   // Effect to fetch user details (for the name in TopBar)
   useEffect(() => {
@@ -46,7 +47,9 @@ function UserPhotos({ userId, setAppContext }) {
       .then((response) => {
         const userData = response.data;
         setUser(userData);
-        setAppContext(`Photos of ${userData.first_name} ${userData.last_name}`);
+        if (!advancedFeatures) {
+          setAppContext(`Photos of ${userData.first_name} ${userData.last_name}`);
+        }
       })
       .catch((error) => {
         console.error(
@@ -55,25 +58,42 @@ function UserPhotos({ userId, setAppContext }) {
         );
         setAppContext("User not found");
       });
-  }, [userId, setAppContext]);
+  }, [userId, setAppContext, advancedFeatures]);
 
   // Effect to fetch photos
   useEffect(() => {
+    setLoading(true);
     axios
       .get(`http://localhost:3001/photosOfUser/${userId}`)
       .then((response) => {
         setPhotos(response.data);
+        setLoading(false);
       })
       .catch((error) => {
         console.error(`Error fetching photos for ${userId}:`, error);
-        setPhotos([]); // Set to empty array on error
+        setPhotos([]);
+        setLoading(false);
       });
   }, [userId]);
 
-  if (!user) {
+  if (loading || !user) {
     return <Typography>Loading user data...</Typography>;
   }
 
+  // Part 2: Advanced Features Redirect
+  if (advancedFeatures) {
+    if (photos.length > 0) {
+      // Redirect to the first photo in the stepper view
+      return <Navigate to={`/photos/${userId}/${photos[0]._id}`} replace />;
+    }
+    return (
+      <Typography variant="body1">
+        This user has not posted any photos yet.
+      </Typography>
+    );
+  }
+
+  // Original list view (if advanced features are off)
   if (photos.length === 0) {
     return (
       <Typography variant="body1">
@@ -145,6 +165,7 @@ function UserPhotos({ userId, setAppContext }) {
 UserPhotos.propTypes = {
   userId: PropTypes.string.isRequired,
   setAppContext: PropTypes.func.isRequired,
+  advancedFeatures: PropTypes.bool.isRequired,
 };
 
 export default UserPhotos;
