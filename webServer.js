@@ -62,9 +62,9 @@ app.get("/test/info", async (request, response) => {
     if (!info) {
       return response.status(404).send("SchemaInfo not found");
     }
-    response.status(200).send(info);
+    return response.status(200).send(info);
   } catch (err) {
-    response.status(500).send(err.message);
+    return response.status(500).send(err.message);
   }
 });
 
@@ -158,9 +158,9 @@ app.get("/user/:id", async (request, response) => {
     if (!user) {
       return response.status(400).send("User not found"); // Test suite expects 400
     }
-    response.status(200).send(user);
+    return response.status(200).send(user);
   } catch (err) {
-    response.status(500).send(err.message);
+    return response.status(500).send(err.message);
   }
 });
 
@@ -280,9 +280,9 @@ app.get("/commentsOfUser/:id", async (request, response) => {
     // Sort by date descending
     userComments.sort((a, b) => new Date(b.date_time) - new Date(a.date_time));
 
-    response.status(200).json(userComments);
+    return response.status(200).json(userComments);
   } catch (err) {
-    response.status(500).send(err.message);
+    return response.status(500).send(err.message);
   }
 });
 

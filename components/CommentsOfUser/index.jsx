@@ -3,7 +3,6 @@ import PropTypes from "prop-types";
 import {
   Typography,
   List,
-  ListItem,
   ListItemText,
   Paper,
   Grid,
